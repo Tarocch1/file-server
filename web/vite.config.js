@@ -3,7 +3,7 @@ import reactRefresh from '@vitejs/plugin-react-refresh';
 
 export default defineConfig({
   build: {
-    outDir: '../html',
+    outDir: '../src/html',
   },
   server: {
     proxy: {

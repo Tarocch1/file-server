@@ -16,4 +16,4 @@ file-server
 # vendor/
 
 node_modules/
-html/
+/src/html/
