@@ -24,7 +24,9 @@ jobs:
           node-version: '14.x'
       - id: npm_ci
         name: npm ci
-        run: npm ci
+        run: |
+          cd ./.github/actions
+          npm ci
       - id: tag_name
         name: Get tag name
         uses: ./.github/actions/tag-name
