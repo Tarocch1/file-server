@@ -1,174 +1,107 @@
 package main
 
 import (
-	"html/template"
-	"io/ioutil"
+	"embed"
+	"encoding/json"
+	"io"
+	"io/fs"
+	"log"
 	"net/http"
 	"os"
-	"path/filepath"
+	"reflect"
 )
 
-func mainHandler(w http.ResponseWriter, r *http.Request) {
-	targetPath, err := getTargetPath(r.URL.Path)
+//go:embed html
+var contextFS embed.FS
+
+func initHTTP(host string) {
+	htmlFS, _ := fs.Sub(contextFS, "html")
+
+	mux := http.NewServeMux()
+	mux.Handle("/", http.FileServer(http.FS(htmlFS)))
+	mux.Handle("/api/list", http.HandlerFunc(basicAuth(getListHandler)))
+
+	if flagHTTPSCert != "" && flagHTTPSKey != "" {
+		log.Fatal(http.ListenAndServeTLS(host, flagHTTPSCert, flagHTTPSKey, mux))
+	} else {
+		log.Fatal(http.ListenAndServe(host, mux))
+	}
+}
+
+func end(w http.ResponseWriter, status int, code int, message string, data interface{}) {
+	if message == "" {
+		message = http.StatusText(status)
+	}
+	if code == -1 {
+		code = status
+	}
+	dataBytes, _ := json.Marshal(map[string]interface{}{
+		"code":    code,
+		"message": message,
+		"data":    data,
+	})
+	w.Header().Add("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(dataBytes)
+}
+
+func getListHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		end(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "", nil)
+		return
+	}
+	bodyBytes, _ := io.ReadAll(r.Body)
+	var body map[string]interface{}
+	err := json.Unmarshal(bodyBytes, &body)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		end(w, http.StatusInternalServerError, -1, err.Error(), nil)
 		return
 	}
-	switch r.Method {
-	case http.MethodHead:
-		headHandler(w, r, targetPath)
-		break
-	case http.MethodGet:
-		getHandler(w, r, targetPath)
-		break
-	case http.MethodPost:
-		postHandler(w, r, targetPath)
-		break
-	case http.MethodPut:
-		putHandler(w, r, targetPath)
-		break
-	case http.MethodDelete:
-		deleteHandler(w, r, targetPath)
-		break
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
-}
-
-func headHandler(w http.ResponseWriter, r *http.Request, targetPath string) {
-	if pathNotExist(targetPath) {
-		w.WriteHeader(http.StatusNotFound)
+	if reflect.TypeOf(body["path"]).Kind() != reflect.String {
+		end(w, http.StatusBadRequest, -1, "", nil)
 		return
 	}
-	http.ServeFile(w, r, targetPath)
-}
-
-func getHandler(w http.ResponseWriter, r *http.Request, targetPath string) {
+	targetPath, err := getTargetPath(body["path"].(string))
+	if err != nil {
+		end(w, http.StatusInternalServerError, -1, err.Error(), nil)
+		return
+	}
 	if pathNotExist(targetPath) {
-		w.WriteHeader(http.StatusNotFound)
+		end(w, http.StatusNotFound, -1, "", nil)
 		return
 	}
 	isDir, err := pathIsDir(targetPath)
 	if err != nil {
-		errorHandler(w, err)
+		end(w, http.StatusInternalServerError, -1, err.Error(), nil)
 		return
 	}
-	if isDir {
-		allFiles, err := ioutil.ReadDir(targetPath)
-		if err != nil {
-			errorHandler(w, err)
-			return
-		}
-		var data listTemplateDataStruct
-		data.Title = targetPath
-		data.Files = []listTemplateDataFileStruct{}
-		var dirs, files []listTemplateDataFileStruct
-		for _, fileInfo := range allFiles {
-			if fileInfo.IsDir() {
-				dirs = append(dirs, listTemplateDataFileStruct{
-					Name:  fileInfo.Name(),
-					IsDir: fileInfo.IsDir(),
-					Time:  fileInfo.ModTime().Unix(),
-					Size:  fileInfo.Size(),
-				})
-			} else {
-				files = append(files, listTemplateDataFileStruct{
-					Name:  fileInfo.Name(),
-					IsDir: fileInfo.IsDir(),
-					Time:  fileInfo.ModTime().Unix(),
-					Size:  fileInfo.Size(),
-				})
-			}
-		}
-		data.Files = append(data.Files, dirs...)
-		data.Files = append(data.Files, files...)
-		t, err := template.New("listTemplate").Funcs(template.FuncMap{"formatSize": formatSize}).Parse(listTemplate)
-		if err != nil {
-			errorHandler(w, err)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(http.StatusOK)
-		t.Execute(w, data)
+	if !isDir {
+		end(w, http.StatusOK, 1, "指定路径不是一个文件夹", nil)
 		return
 	}
-	http.ServeFile(w, r, targetPath)
-}
-
-func postHandler(w http.ResponseWriter, r *http.Request, targetPath string) {
-	if !pathNotExist(targetPath) {
-		w.WriteHeader(http.StatusConflict)
-		return
-	}
-	if len(r.Header["X-File-Server-Mkdir"]) > 0 {
-		err := os.MkdirAll(targetPath, 0666)
-		if err != nil {
-			errorHandler(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusCreated)
-		return
-	}
-	fileBytes, err := ioutil.ReadAll(r.Body)
+	entries, err := os.ReadDir(targetPath)
 	if err != nil {
-		errorHandler(w, err)
+		end(w, http.StatusInternalServerError, -1, err.Error(), nil)
 		return
 	}
-	err = ioutil.WriteFile(targetPath, fileBytes, 0666)
-	if err != nil {
-		errorHandler(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusCreated)
-}
-
-func putHandler(w http.ResponseWriter, r *http.Request, targetPath string) {
-	notExist := pathNotExist(targetPath)
-	fileBytes, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		errorHandler(w, err)
-		return
-	}
-	if len(r.Header["X-File-Server-Rename"]) > 0 {
-		if notExist {
-			w.WriteHeader(http.StatusNotFound)
-			return
+	var data []interface{}
+	var dirs []interface{}
+	var files []interface{}
+	for _, entry := range entries {
+		fileInfo, _ := entry.Info()
+		var item = map[string]interface{}{
+			"name":  fileInfo.Name(),
+			"isDir": fileInfo.IsDir(),
+			"time":  fileInfo.ModTime().Unix(),
+			"size":  formatSize(fileInfo.Size()),
 		}
-		err = os.Rename(targetPath, filepath.Join(filepath.Dir(targetPath), filepath.Base(string(fileBytes))))
-		if err != nil {
-			errorHandler(w, err)
-			return
+		if fileInfo.IsDir() {
+			dirs = append(dirs, item)
+		} else {
+			files = append(files, item)
 		}
-		w.WriteHeader(http.StatusOK)
-		return
 	}
-	err = ioutil.WriteFile(targetPath, fileBytes, 0666)
-	if err != nil {
-		errorHandler(w, err)
-		return
-	}
-	if notExist {
-		w.WriteHeader(http.StatusCreated)
-	} else {
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func deleteHandler(w http.ResponseWriter, r *http.Request, targetPath string) {
-	if pathNotExist(targetPath) {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	err := os.RemoveAll(targetPath)
-	if err != nil {
-		errorHandler(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-func errorHandler(w http.ResponseWriter, err error) {
-	w.WriteHeader(http.StatusInternalServerError)
-	w.Write([]byte(err.Error()))
+	data = append(data, dirs...)
+	data = append(data, files...)
+	end(w, http.StatusOK, 0, "", data)
 }

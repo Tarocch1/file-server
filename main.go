@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 )
 
 var workDir string
@@ -40,14 +39,7 @@ func main() {
 
 	host := flagHost + ":" + flagPort
 
-	mux := http.NewServeMux()
-	mux.Handle("/", http.HandlerFunc(basicAuth(mainHandler)))
-
 	log.Print("Starting serve ", workDir, " at ", host, ".")
 
-	if flagHTTPSCert != "" && flagHTTPSKey != "" {
-		log.Fatal(http.ListenAndServeTLS(host, flagHTTPSCert, flagHTTPSKey, mux))
-	} else {
-		log.Fatal(http.ListenAndServe(host, mux))
-	}
+	initHTTP(host)
 }
