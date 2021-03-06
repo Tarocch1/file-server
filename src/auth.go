@@ -1,33 +1,16 @@
 package main
 
 import (
-	"encoding/base64"
-	"net/http"
 	"strings"
 )
 
+var flagAuthUsername string
+var flagAuthPassword string
+
 func initAuth() {
 	if flagAuth != "" {
-		flagAuth = base64.StdEncoding.EncodeToString([]byte(flagAuth))
-	}
-}
-
-func basicAuth(f func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if flagAuth == "" {
-			f(w, r)
-			return
-		}
-		basicAuthPrefix := "Basic "
-		auth := r.Header.Get("Authorization")
-		if strings.HasPrefix(auth, basicAuthPrefix) {
-			token := auth[len(basicAuthPrefix):]
-			if token == flagAuth {
-				f(w, r)
-				return
-			}
-		}
-		w.Header().Set("WWW-Authenticate", "Basic")
-		w.WriteHeader(http.StatusUnauthorized)
+		strArray := strings.Split(flagAuth, ":")
+		flagAuthUsername = strArray[0]
+		flagAuthPassword = strArray[1]
 	}
 }

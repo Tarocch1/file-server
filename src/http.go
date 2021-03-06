@@ -1,14 +1,15 @@
 package main
 
 import (
+	"crypto/subtle"
 	"embed"
-	"encoding/json"
-	"io"
 	"io/fs"
-	"log"
 	"net/http"
 	"os"
 	"reflect"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 //go:embed html
@@ -17,72 +18,75 @@ var contextFS embed.FS
 func initHTTP(host string) {
 	htmlFS, _ := fs.Sub(contextFS, "html")
 
-	mux := http.NewServeMux()
-	mux.Handle("/", http.FileServer(http.FS(htmlFS)))
-	mux.Handle("/api/list", http.HandlerFunc(basicAuth(getListHandler)))
+	e := echo.New()
+
+	e.HideBanner = true
+
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+	if flagAuth != "" {
+		e.Use(middleware.BasicAuth(basicAuthValidator))
+	}
+
+	htmlHandler := http.FileServer(http.FS(htmlFS))
+
+	e.GET("/*", echo.WrapHandler(htmlHandler))
+	e.POST("/api/list", getListHandler)
 
 	if flagHTTPSCert != "" && flagHTTPSKey != "" {
-		log.Fatal(http.ListenAndServeTLS(host, flagHTTPSCert, flagHTTPSKey, mux))
+		e.Logger.Fatal(e.StartTLS(host, flagHTTPSCert, flagHTTPSKey))
 	} else {
-		log.Fatal(http.ListenAndServe(host, mux))
+		e.Logger.Fatal(e.Start(host))
 	}
 }
 
-func end(w http.ResponseWriter, status int, code int, message string, data interface{}) {
+func basicAuthValidator(username, password string, c echo.Context) (bool, error) {
+	if subtle.ConstantTimeCompare([]byte(username), []byte(flagAuthUsername)) == 1 &&
+		subtle.ConstantTimeCompare([]byte(password), []byte(flagAuthPassword)) == 1 {
+		return true, nil
+	}
+	return false, nil
+}
+
+func end(c echo.Context, status, code int, message string, data interface{}) error {
 	if message == "" {
 		message = http.StatusText(status)
 	}
 	if code == -1 {
 		code = status
 	}
-	dataBytes, _ := json.Marshal(map[string]interface{}{
+	return c.JSON(status, map[string]interface{}{
 		"code":    code,
 		"message": message,
 		"data":    data,
 	})
-	w.Header().Add("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(dataBytes)
 }
 
-func getListHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		end(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "", nil)
-		return
-	}
-	bodyBytes, _ := io.ReadAll(r.Body)
+func getListHandler(c echo.Context) error {
 	var body map[string]interface{}
-	err := json.Unmarshal(bodyBytes, &body)
-	if err != nil {
-		end(w, http.StatusInternalServerError, -1, err.Error(), nil)
-		return
+	if err := c.Bind(&body); err != nil {
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
 	}
 	if reflect.TypeOf(body["path"]).Kind() != reflect.String {
-		end(w, http.StatusBadRequest, -1, "", nil)
-		return
+		return end(c, http.StatusBadRequest, -1, "路径格式不正确", nil)
 	}
 	targetPath, err := getTargetPath(body["path"].(string))
 	if err != nil {
-		end(w, http.StatusInternalServerError, -1, err.Error(), nil)
-		return
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
 	}
 	if pathNotExist(targetPath) {
-		end(w, http.StatusNotFound, -1, "", nil)
-		return
+		return end(c, http.StatusNotFound, -1, "指定路径不存在", nil)
 	}
 	isDir, err := pathIsDir(targetPath)
 	if err != nil {
-		end(w, http.StatusInternalServerError, -1, err.Error(), nil)
-		return
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
 	}
 	if !isDir {
-		end(w, http.StatusOK, 1, "指定路径不是一个文件夹", nil)
-		return
+		return end(c, http.StatusOK, 1, "指定路径不是一个文件夹", nil)
 	}
 	entries, err := os.ReadDir(targetPath)
 	if err != nil {
-		end(w, http.StatusInternalServerError, -1, err.Error(), nil)
-		return
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
 	}
 	var data []interface{}
 	var dirs []interface{}
@@ -103,5 +107,5 @@ func getListHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	data = append(data, dirs...)
 	data = append(data, files...)
-	end(w, http.StatusOK, 0, "", data)
+	return end(c, http.StatusOK, 0, "SUCCESS", data)
 }

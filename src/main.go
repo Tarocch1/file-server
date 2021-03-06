@@ -39,7 +39,5 @@ func main() {
 
 	host := flagHost + ":" + flagPort
 
-	log.Print("Starting serve ", workDir, " at ", host, ".")
-
 	initHTTP(host)
 }
