@@ -92,14 +92,22 @@ func customHTTPErrorHandler(err error, c echo.Context) {
 func getListHandler(c echo.Context) error {
 	var body map[string]interface{}
 	c.Bind(&body)
-	targetPath, _ := getTargetPath(body["path"].(string))
+	targetPath, err := getTargetPath(body["path"].(string))
+	if err != nil {
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
+	}
 	if pathNotExist(targetPath) {
 		return endWithError(c, 1)
 	}
-	if isDir, _ := pathIsDir(targetPath); !isDir {
+	if isDir, err := pathIsDir(targetPath); err != nil {
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
+	} else if !isDir {
 		return endWithError(c, 2)
 	}
-	entries, _ := os.ReadDir(targetPath)
+	entries, err := os.ReadDir(targetPath)
+	if err != nil {
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
+	}
 	data := []interface{}{}
 	dirs := []interface{}{}
 	files := []interface{}{}
@@ -124,11 +132,16 @@ func getListHandler(c echo.Context) error {
 
 func downloadHandler(c echo.Context) error {
 	path := c.QueryParam("path")
-	targetPath, _ := getTargetPath(path)
+	targetPath, err := getTargetPath(path)
+	if err != nil {
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
+	}
 	if pathNotExist(targetPath) {
 		return endWithError(c, 1)
 	}
-	if isDir, _ := pathIsDir(targetPath); isDir {
+	if isDir, err := pathIsDir(targetPath); err != nil {
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
+	} else if isDir {
 		return endWithError(c, 3)
 	}
 	return c.Attachment(targetPath, filepath.Base(targetPath))
@@ -137,10 +150,16 @@ func downloadHandler(c echo.Context) error {
 func removeHandler(c echo.Context) error {
 	var body map[string]interface{}
 	c.Bind(&body)
-	targetPath, _ := getTargetPath(body["path"].(string))
+	targetPath, err := getTargetPath(body["path"].(string))
+	if err != nil {
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
+	}
 	if pathNotExist(targetPath) {
 		return endWithError(c, 1)
 	}
-	os.RemoveAll(targetPath)
+	err = os.RemoveAll(targetPath)
+	if err != nil {
+		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
+	}
 	return end(c, http.StatusOK, 0, "SUCCESS", nil)
 }
