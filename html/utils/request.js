@@ -5,7 +5,7 @@ function request(options) {
     .then(res => {
       const { data } = res;
       if (data.code === 0) {
-        return res.data;
+        return data;
       } else {
         return {
           erred: true,

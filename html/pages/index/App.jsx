@@ -1,15 +1,31 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { useMount, useHash, useLatest } from 'react-use';
-import { Breadcrumb, Table, Divider, Popconfirm, message } from 'antd';
+import {
+  Row,
+  Col,
+  Breadcrumb,
+  Button,
+  Table,
+  Divider,
+  Popconfirm,
+  Drawer,
+  Typography,
+  Progress,
+  message,
+} from 'antd';
 import { HomeOutlined, FolderTwoTone, FileTwoTone } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getList as getListService, remove as removeService } from './service';
+import Uploader from './uploader';
 
 function App() {
+  const inputEl = useRef(null);
   const [hash, setHash] = useHash();
   const latestHash = useLatest(hash);
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadList, setUploadList] = useState([]);
   useMount(() => {
     setHash('#/');
   });
@@ -49,10 +65,78 @@ function App() {
     const path = `${latestHash.current.replace('#', '.')}${file.name}`;
     removeService(path).then(function (res) {
       if (!res.erred) {
+        message.success('删除成功');
         getList();
       } else {
         message.error(res.message);
       }
+    });
+  }
+  function openFileSelector() {
+    if (inputEl.current) {
+      inputEl.current.click();
+    }
+  }
+  function startUpload() {
+    const path = `${latestHash.current.replace('#', '.')}`;
+    const files = inputEl.current.files;
+    console.log(files);
+    if (files.length === 0) return;
+    setUploading(true);
+    [...files].forEach(function (file, i) {
+      setUploadList(function (_list) {
+        const list = [..._list];
+        const id = list.length;
+        const uploader = new Uploader({
+          file,
+          path: `${path}${file.name}`,
+          onSuccess: function () {
+            setUploadList(function (_list) {
+              const list = [..._list];
+              list[id].percent = 100;
+              list[id].status = 'success';
+              if (list[id + 1]) {
+                list[id + 1].uploader.start();
+              } else {
+                setUploading(false);
+                getList();
+              }
+              return list;
+            });
+          },
+          onError: function (msg) {
+            message.error(msg);
+            setUploadList(function (_list) {
+              const list = [..._list];
+              list[id].status = 'exception';
+              if (list[id + 1]) {
+                list[id + 1].uploader.start();
+              } else {
+                setUploading(false);
+                getList();
+              }
+              return list;
+            });
+          },
+          onPregress: function (e) {
+            setUploadList(function (_list) {
+              const list = [..._list];
+              list[id].percent = (e.loaded * 100) / file.size;
+              return list;
+            });
+          },
+        });
+        if (i === 0) {
+          uploader.start();
+        }
+        list.push({
+          name: file.name,
+          percent: 0,
+          status: 'active',
+          uploader,
+        });
+        return list;
+      });
     });
   }
   const columns = [
@@ -114,7 +198,15 @@ function App() {
   ];
   return (
     <div className="wrap">
-      <Breadcrumb>{renderBreadcrumbItem()}</Breadcrumb>
+      <Row align="middle" gutter={16}>
+        <Col style={{ flexGrow: 1 }}>
+          <Breadcrumb>{renderBreadcrumbItem()}</Breadcrumb>
+        </Col>
+        <Col style={{ flexShrink: 0 }}>
+          <Button onClick={openFileSelector}>上传文件</Button>
+        </Col>
+      </Row>
+
       <Table
         style={{ marginTop: 16 }}
         rowKey="name"
@@ -125,6 +217,33 @@ function App() {
         bordered
         size="small"
       />
+      <input
+        ref={inputEl}
+        type="file"
+        style={{ display: 'none' }}
+        multiple
+        onChange={startUpload}
+      />
+      <Drawer
+        title="上传列表"
+        visible={uploading}
+        maskClosable={false}
+        closable={false}
+        width={400}
+      >
+        {uploadList.map((item, i) => (
+          <div key={i} style={{ marginBottom: 16 }}>
+            <Typography.Text
+              style={{ width: '100%' }}
+              ellipsis
+              title={item.name}
+            >
+              {item.name}
+            </Typography.Text>
+            <Progress percent={item.percent} status={item.status} />
+          </div>
+        ))}
+      </Drawer>
     </div>
   );
 }

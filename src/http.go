@@ -39,8 +39,11 @@ func initHTTP(host string) {
 
 	e.GET("/*", echo.WrapHandler(htmlHandler))
 	e.POST("/api/list", getListHandler)
-	e.POST("/api/remove", removeHandler)
 	e.GET("/api/download", downloadHandler)
+	e.POST("/api/remove", removeHandler)
+	e.POST("/api/upload/start", uploadStartHandler)
+	e.POST("/api/upload/chunk", uploadChunkHandler)
+	e.POST("/api/upload/end", uploadEndHandler)
 
 	if flagHTTPSCert != "" && flagHTTPSKey != "" {
 		e.Logger.Fatal(e.StartTLS(host, flagHTTPSCert, flagHTTPSKey))
