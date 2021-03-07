@@ -11,6 +11,11 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
+var _errors = map[int]string{
+	1: "指定路径不存在",
+	2: "指定路径不是一个文件夹",
+}
+
 //go:embed html
 var contextFS embed.FS
 
@@ -32,6 +37,7 @@ func initHTTP(host string) {
 
 	e.GET("/*", echo.WrapHandler(htmlHandler))
 	e.POST("/api/list", getListHandler)
+	e.POST("/api/remove", removeHandler)
 
 	if flagHTTPSCert != "" && flagHTTPSKey != "" {
 		e.Logger.Fatal(e.StartTLS(host, flagHTTPSCert, flagHTTPSKey))
@@ -62,6 +68,10 @@ func end(c echo.Context, status, code int, message string, data interface{}) err
 	})
 }
 
+func endWithError(c echo.Context, code int) error {
+	return end(c, http.StatusOK, code, _errors[code], nil)
+}
+
 func customHTTPErrorHandler(err error, c echo.Context) {
 	status := http.StatusInternalServerError
 	if he, ok := err.(*echo.HTTPError); ok {
@@ -78,10 +88,10 @@ func getListHandler(c echo.Context) error {
 	c.Bind(&body)
 	targetPath, _ := getTargetPath(body["path"].(string))
 	if pathNotExist(targetPath) {
-		return end(c, http.StatusOK, 1, "指定路径不存在", nil)
+		return endWithError(c, 1)
 	}
 	if isDir, _ := pathIsDir(targetPath); !isDir {
-		return end(c, http.StatusOK, 2, "指定路径不是一个文件夹", nil)
+		return endWithError(c, 2)
 	}
 	entries, _ := os.ReadDir(targetPath)
 	data := []interface{}{}
@@ -104,4 +114,15 @@ func getListHandler(c echo.Context) error {
 	data = append(data, dirs...)
 	data = append(data, files...)
 	return end(c, http.StatusOK, 0, "SUCCESS", data)
+}
+
+func removeHandler(c echo.Context) error {
+	var body map[string]interface{}
+	c.Bind(&body)
+	targetPath, _ := getTargetPath(body["path"].(string))
+	if pathNotExist(targetPath) {
+		return endWithError(c, 1)
+	}
+	os.RemoveAll(targetPath)
+	return end(c, http.StatusOK, 0, "SUCCESS", nil)
 }

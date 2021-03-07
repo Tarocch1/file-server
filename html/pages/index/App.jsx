@@ -1,9 +1,9 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useMount, useHash, useLatest } from 'react-use';
-import { Breadcrumb, Table, message } from 'antd';
+import { Breadcrumb, Table, Popconfirm, message } from 'antd';
 import { HomeOutlined, FolderTwoTone, FileTwoTone } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { getList as getListService } from './service';
+import { getList as getListService, remove as removeService } from './service';
 
 function App() {
   const [hash, setHash] = useHash();
@@ -41,6 +41,16 @@ function App() {
       setLoading(false);
     });
   }
+  function remove(file) {
+    const path = `${latestHash.current.replace('#', '.')}${file.name}`;
+    removeService(path).then(function (res) {
+      if (!res.erred) {
+        getList();
+      } else {
+        message.error(res.message);
+      }
+    });
+  }
   const columns = [
     {
       title: '',
@@ -71,7 +81,19 @@ function App() {
     },
     {
       title: '操作',
-      render: record => {},
+      render: record => (
+        <React.Fragment>
+          <Popconfirm
+            title={`是否要删除该${record.isDir ? '文件夹' : '文件'}？`}
+            onConfirm={function () {
+              remove(record);
+            }}
+          >
+            <a>删除</a>
+          </Popconfirm>
+        </React.Fragment>
+      ),
+      width: 100,
     },
   ];
   return (
@@ -79,6 +101,7 @@ function App() {
       <Breadcrumb>{renderBreadcrumbItem()}</Breadcrumb>
       <Table
         style={{ marginTop: 16 }}
+        rowKey="name"
         loading={loading}
         columns={columns}
         dataSource={list}

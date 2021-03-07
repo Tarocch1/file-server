@@ -9,3 +9,13 @@ export function getList(path) {
     },
   });
 }
+
+export function remove(path) {
+  return request({
+    url: '/api/remove',
+    method: 'post',
+    data: {
+      path,
+    },
+  });
+}
