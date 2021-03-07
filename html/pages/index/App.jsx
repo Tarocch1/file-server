@@ -80,7 +80,6 @@ function App() {
   function startUpload() {
     const path = `${latestHash.current.replace('#', '.')}`;
     const files = inputEl.current.files;
-    console.log(files);
     if (files.length === 0) return;
     setUploading(true);
     [...files].forEach(function (file, i) {

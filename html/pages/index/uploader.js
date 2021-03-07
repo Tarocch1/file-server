@@ -53,7 +53,6 @@ Uploader.prototype._uploadChunk = function () {
   const cancelSource = CancelToken.source();
   this.cancelTokens.push(cancelSource);
   uploadChunk(this.options.path, id, chunk.file, cancelSource.token, e => {
-    console.log(e);
     this.chunks[id].loaded = e.loaded;
     this._onProgress();
   }).then(res => {
