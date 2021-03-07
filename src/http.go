@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
-	"reflect"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -21,6 +20,7 @@ func initHTTP(host string) {
 	e := echo.New()
 
 	e.HideBanner = true
+	e.HTTPErrorHandler = customHTTPErrorHandler
 
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
@@ -62,35 +62,31 @@ func end(c echo.Context, status, code int, message string, data interface{}) err
 	})
 }
 
+func customHTTPErrorHandler(err error, c echo.Context) {
+	status := http.StatusInternalServerError
+	if he, ok := err.(*echo.HTTPError); ok {
+		status = he.Code
+	}
+	if err := end(c, status, -1, err.Error(), nil); err != nil {
+		c.Logger().Error(err)
+	}
+	c.Logger().Error(err)
+}
+
 func getListHandler(c echo.Context) error {
 	var body map[string]interface{}
-	if err := c.Bind(&body); err != nil {
-		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
-	}
-	if reflect.TypeOf(body["path"]).Kind() != reflect.String {
-		return end(c, http.StatusBadRequest, -1, "路径格式不正确", nil)
-	}
-	targetPath, err := getTargetPath(body["path"].(string))
-	if err != nil {
-		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
-	}
+	c.Bind(&body)
+	targetPath, _ := getTargetPath(body["path"].(string))
 	if pathNotExist(targetPath) {
-		return end(c, http.StatusNotFound, -1, "指定路径不存在", nil)
+		return end(c, http.StatusOK, 1, "指定路径不存在", nil)
 	}
-	isDir, err := pathIsDir(targetPath)
-	if err != nil {
-		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
+	if isDir, _ := pathIsDir(targetPath); !isDir {
+		return end(c, http.StatusOK, 2, "指定路径不是一个文件夹", nil)
 	}
-	if !isDir {
-		return end(c, http.StatusOK, 1, "指定路径不是一个文件夹", nil)
-	}
-	entries, err := os.ReadDir(targetPath)
-	if err != nil {
-		return end(c, http.StatusInternalServerError, -1, err.Error(), nil)
-	}
-	var data []interface{}
-	var dirs []interface{}
-	var files []interface{}
+	entries, _ := os.ReadDir(targetPath)
+	data := []interface{}{}
+	dirs := []interface{}{}
+	files := []interface{}{}
 	for _, entry := range entries {
 		fileInfo, _ := entry.Info()
 		var item = map[string]interface{}{
