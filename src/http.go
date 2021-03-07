@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -14,6 +15,7 @@ import (
 var _errors = map[int]string{
 	1: "指定路径不存在",
 	2: "指定路径不是一个文件夹",
+	3: "指定路径是一个文件夹",
 }
 
 //go:embed html
@@ -38,6 +40,7 @@ func initHTTP(host string) {
 	e.GET("/*", echo.WrapHandler(htmlHandler))
 	e.POST("/api/list", getListHandler)
 	e.POST("/api/remove", removeHandler)
+	e.GET("/api/download", downloadHandler)
 
 	if flagHTTPSCert != "" && flagHTTPSKey != "" {
 		e.Logger.Fatal(e.StartTLS(host, flagHTTPSCert, flagHTTPSKey))
@@ -114,6 +117,18 @@ func getListHandler(c echo.Context) error {
 	data = append(data, dirs...)
 	data = append(data, files...)
 	return end(c, http.StatusOK, 0, "SUCCESS", data)
+}
+
+func downloadHandler(c echo.Context) error {
+	path := c.QueryParam("path")
+	targetPath, _ := getTargetPath(path)
+	if pathNotExist(targetPath) {
+		return endWithError(c, 1)
+	}
+	if isDir, _ := pathIsDir(targetPath); isDir {
+		return endWithError(c, 3)
+	}
+	return c.Attachment(targetPath, filepath.Base(targetPath))
 }
 
 func removeHandler(c echo.Context) error {

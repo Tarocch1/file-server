@@ -1,6 +1,6 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useMount, useHash, useLatest } from 'react-use';
-import { Breadcrumb, Table, Popconfirm, message } from 'antd';
+import { Breadcrumb, Table, Divider, Popconfirm, message } from 'antd';
 import { HomeOutlined, FolderTwoTone, FileTwoTone } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getList as getListService, remove as removeService } from './service';
@@ -40,6 +40,10 @@ function App() {
       }
       setLoading(false);
     });
+  }
+  function download(file) {
+    const path = `${latestHash.current.replace('#', '.')}${file.name}`;
+    window.open(`/api/download?path=${path}`, '_blank');
   }
   function remove(file) {
     const path = `${latestHash.current.replace('#', '.')}${file.name}`;
@@ -91,6 +95,18 @@ function App() {
           >
             <a>删除</a>
           </Popconfirm>
+          {!record.isDir && (
+            <React.Fragment>
+              <Divider type="vertical" />
+              <a
+                onClick={function () {
+                  download(record);
+                }}
+              >
+                下载
+              </a>
+            </React.Fragment>
+          )}
         </React.Fragment>
       ),
       width: 100,
